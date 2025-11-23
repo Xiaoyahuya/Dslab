@@ -85,21 +85,22 @@ mkdir lab1 lab2 lab3   # 创建三个实验目录
 ```mermaid
 graph TD
     User[用户提交任务] -->|加锁| Submit
-    Submit{当前工人数 < 容量?}
+    Submit{当前工作线程数 < 容量?}
     
-    Submit -- Yes --> StartWorker[启动新协程 (Worker)]
-    Submit -- No --> Enqueue[加入队列]
-    Enqueue --> Signal[唤醒睡着的 Worker]
+    Submit -->|是| StartWorker[启动新协程 Worker]
+    Submit -->|否| Enqueue[加入队列]
+    Enqueue --> Signal[唤醒等待的 Worker]
     
     StartWorker --> Loop
     Signal --> Loop
     
-    subgraph Worker Loop
+    subgraph Worker循环流程
     Loop --> CheckQueue{队列有任务?}
-    CheckQueue -- No --> Wait[Sleep (释放锁等待)]
+    CheckQueue -->|否| Wait[Sleep 释放锁等待]
     Wait --> Loop
-    CheckQueue -- Yes --> RunTask[取任务 -> 解锁 -> 执行]
-    RunTask --> Lock[重新加锁] --> Loop
+    CheckQueue -->|是| RunTask[取任务 -> 解锁 -> 执行]
+    RunTask --> Lock[重新加锁]
+    Lock --> Loop
     end
 ```
 
