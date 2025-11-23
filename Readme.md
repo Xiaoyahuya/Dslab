@@ -1,17 +1,19 @@
-这是一份完整的、面向初学者的分布式系统实验指导书。
+# 📘 分布式系统实验 (Distributed Systems Labs)
 
-这份文档将带你从零开始，学习 Go 语言基础，搭建环境，并完成三个核心的分布式实验。
+## 1. 项目概述
+
+本项目是分布式系统课程的配套实践环节，旨在通过构建核心组件，帮助学生深入理解分布式计算中的关键问题：**并发控制 (Concurrency)**、**逻辑时序 (Logical Ordering)** 以及 **数据一致性 (Consistency)**。
+
+本项目包含三个循序渐进的实验模块（Labs），要求学生在给定的代码框架下，补全关键逻辑，并通过所有的单元测试。
+
+### 实验内容概览
+*   **Lab 1: Bounded Worker Pool** - 解决高并发场景下的资源调度与协同问题。
+*   **Lab 2: Lamport Logical Clock** - 解决分布式系统中的事件因果定序问题。
+*   **Lab 3: Primary-Backup Replication** - 实现强一致性的日志复制与故障回滚机制。
 
 ---
 
-# 📘 分布式系统实验手册 (DSLabs v2)
-
-**设计目标**：通过亲手实现核心组件，理解分布式系统的**并发**、**时序**和**一致性**。
-**难度定位**：入门级 ~ 中级（比 MIT 6.824 简单，注重核心逻辑）。
-
----
-
-## 🛠️ 第 0 章：准备工作
+## 2. 环境准备 (Prerequisites)
 
 ### 1. 环境搭建
 分布式系统现在的主流语言是 **Go (Golang)**，因为它天生支持高并发。
@@ -61,26 +63,28 @@ mu.Unlock()
 client.Call("Node.MethodName", args, reply)
 ```
 
-### 3. 项目初始化
-打开终端，执行以下命令建立项目骨架：
-
+### 2.3 项目初始化
+当前仓库已包含完整的目录结构与测试用例。请拉取代码后在根目录执行：
 ```bash
-mkdir dslabs_v2
-cd dslabs_v2
-go mod init dslabs_v2  # 初始化模块
-mkdir lab1 lab2 lab3   # 创建三个实验目录
+go mod tidy  # 下载依赖并整理模块
 ```
 
 ---
 
-## 🟢 Lab 1: 高并发任务池 (Worker Pool)
+## 🟢 Lab 1: 高并发任务池 (Bounded Worker Pool)
 
-### 1. 实验目标
-**场景**：服务器瞬间收到 10000 个请求，如果开 10000 个线程，服务器会挂。
-**任务**：实现一个 `Worker Pool`，限制同时工作的线程数（比如只允许 5 个），超出的请求排队等待。
+### 1.1 实验背景
+**场景**：服务器瞬间收到 10000 个请求，如果开 10000 个线程，可能导致服务器严重卡顿甚至卡死。
+**概述**：在生产级的高并发服务中，无限制地为每个请求创建 Goroutine 会导致内存耗尽（OOM）和调度开销过大。因此，**线程池（Worker Pool）** 是实现资源隔离和流量控制（Backpressure）的标准组件。
 
-### 2. 逻辑流程图
-我们使用 **条件变量 (Cond)** 来协调生产者（提交任务）和消费者（工人）。
+### 1.2 实验任务
+在 `lab1/pool.go` 中实现一个具有**动态扩容**和**任务排队**能力的 Worker Pool。
+*   **输入**: 任意数量的并发任务提交。
+*   **约束**: 同时运行的 Worker 数量不得超过设定的 `capacity`。
+*   **行为**: 当 Worker 达到上限时，新任务需进入队列等待，直到有 Worker 闲置。
+
+### 1.3 架构设计
+系统采用**生产者-消费者**模型，利用 `sync.Cond` 实现阻塞与唤醒机制。
 
 ```mermaid
 graph TD
@@ -104,58 +108,31 @@ graph TD
     end
 ```
 
-### 3. 实战步骤
+### 1.4 实现指南
+请重点完善 `pool.go` 中的以下逻辑：
+1.  **任务提交 (Submit)**: 判断当前运行状态，决定是启动新 Goroutine 还是将任务加入队列。
+2.  **工作循环 (workerLoop)**: 消费者逻辑，需正确处理 `Wait()` 挂起与任务执行的竞态条件。
+3.  **优雅关闭 (Shutdown)**: 确保所有在列任务执行完毕后再销毁资源。
 
-#### 步骤 3.1: 创建文件
-在 `lab1` 目录下创建 `pool.go` 和 `pool_test.go`。
-*(代码请参考之前的对话，这里不再重复粘贴，重点讲如何填空)*
-
-#### 步骤 3.2: 核心代码填空指南 (pool.go)
-
-*   **填空 1: 提交任务**
-    ```go
-    // 把任务放到切片末尾
-    p.tasks = append(p.tasks, t)
-    ```
-*   **填空 2: 动态扩容 (懒加载)**
-    ```go
-    if p.running < p.capacity {
-        p.running++
-        p.wg.Add(1)      // 告诉 WaitGroup 加人
-        go p.workerLoop()
-    } else {
-        p.cond.Signal()  // 叫醒一个 Wait 的人
-    }
-    ```
-*   **填空 3: 循环等待**
-    ```go
-    // 只要没任务且没关机，就一直睡
-    for len(p.tasks) == 0 && !p.shutdown {
-        p.cond.Wait()
-    }
-    ```
-*   **填空 4: 取出任务**
-    ```go
-    task := p.tasks[0]
-    p.tasks = p.tasks[1:]
-    ```
-
-#### 步骤 3.3: 运行
+### 1.5 验证
 ```bash
 cd lab1
-go test -v -race
+go test -v -race  # -race 参数用于检测并发竞争
 ```
-*   **预期结果**: `PASS`。这证明你的池子既能限制并发，又不会死锁。
 
 ---
 
-## 🟡 Lab 2: 分布式时钟 (Lamport Clock)
+## 🟡 Lab 2: 分布式逻辑时钟 (Lamport Clock)
 
-### 1. 实验目标
+### 2.1 实验背景
 **场景**：A 和 B 两台机器时间不同步。A 发消息给 B，B 收到时发现本地时间比 A 发送时间还早，因果错乱。
-**任务**：实现 **Lamport 逻辑时钟**，保证 `接收事件时间 > 发送事件时间`。
+**概述**：在分布式系统中，由于物理时钟无法完美同步，我们无法仅凭物理时间戳确定事件的先后顺序。Leslie Lamport 提出的**逻辑时钟**算法，通过定义 "Happened-before" 关系，解决了分布式系统中的因果一致性问题。
 
-### 2. 逻辑流程图
+### 2.2 实验任务
+在 `lab2/node.go` 中实现 Lamport 时钟算法，确保系统满足以下不变性（Invariant）：
+$$ \text{if } a \rightarrow b, \text{ then } C(a) < C(b) $$
+
+### 2.3 交互流程
 
 ```mermaid
 sequenceDiagram
@@ -176,51 +153,32 @@ sequenceDiagram
     Note right of NodeB: 结果: NodeB(13) > NodeA(12) <br/> 因果顺序正确
 ```
 
-### 3. 实战步骤
+### 2.4 实现指南
+请补全 `lab2/node.go` 中的核心方法：
+1.  **LocalEvent()**: 处理本地事件的时钟推进。
+2.  **SendMessage()**: 发送 RPC 请求前的时钟更新与参数封装。
+3.  **HandleMessage()**: 接收 RPC 请求时的时钟合并逻辑（`max` 算法）。
 
-#### 步骤 3.1: 创建文件
-在 `lab2` 目录下创建 `common.go`, `node.go`, `lamport_test.go`。
-*(代码使用上一轮回答中的 RPC 版本)*
-
-#### 步骤 3.2: 核心代码填空指南 (node.go)
-
-*   **填空 1: 本地事件**
-    ```go
-    n.Clock++
-    ```
-*   **填空 2: 发送消息**
-    ```go
-    n.Clock++
-    reqTime := n.Clock // 记录下此刻的时间戳
-    n.mu.Unlock()      // RPC 前解锁，防止阻塞
-    
-    args := &LamportMsg{Timestamp: reqTime, ...}
-    err := client.Call(...)
-    ```
-*   **填空 3: 接收消息 (HandleMessage)**
-    ```go
-    if args.Timestamp > n.Clock {
-        n.Clock = args.Timestamp
-    }
-    n.Clock++
-    ```
-
-#### 步骤 3.3: 运行
+### 2.5 验证
 ```bash
-cd ../lab2
+cd lab2
 go test -v
 ```
-*   **预期结果**: 只有实现了上面的 max 逻辑，测试中的 `t2 <= t1` 断言才不会报错。
 
 ---
 
-## 🟠 Lab 3: 日志复制 (Replication)
+## 🟠 Lab 3: 主从复制与原子性 (Primary-Backup Replication)
 
-### 1. 实验目标
-**场景**：这是 Raft 算法的雏形。我们要实现**强一致性**的主从复制。
-**任务**：Client 写 Primary，Primary 同步给 Backup。**如果 Backup 挂了，Primary 必须回滚，不能独自保存数据。**
+### 3.1 实验背景
+**概述**：本实验构建了一个简化版的**强一致性**存储系统。为了保证数据的持久性，写入操作必须同步到备份节点（Backup）。系统的核心挑战在于处理**部分失败（Partial Failure）**：如果同步到 Backup 失败，主节点（Primary）必须回滚自身状态，以保证原子性（Atomicity）。
 
-### 2. 逻辑流程图 (含故障回滚)
+### 3.2 实验任务
+在 `lab3/node.go` 中实现基于 RPC 的同步复制协议。
+*   **Write**: 客户端请求写入 Primary。
+*   **Replicate**: Primary 将日志条目同步至 Backup。
+*   **Rollback**: 若 Backup 写入失败或响应超时，Primary 必须撤销本地的预写入。
+
+### 3.3 逻辑流程图 (含故障回滚)
 
 ```mermaid
 sequenceDiagram
@@ -251,49 +209,43 @@ sequenceDiagram
     deactivate Primary
 ```
 
-### 3. 实战步骤
+### 3.4 实现指南
+这是三个实验中逻辑最复杂的部分，请重点关注 `node.go`：
+1.  **Replicate 逻辑**: 必须是同步阻塞调用（Synchronous RPC），在收到 Backup 响应前不能向 Client 返回成功。
+2.  **异常处理**: 在 RPC 返回错误或 `Success=false` 时，务必执行切片回退操作，移除脏数据。
 
-#### 步骤 3.1: 创建文件
-在 `lab3` 目录下创建 `common.go`, `node.go`, `repl_test.go`。
-*(代码使用上一轮回答中的 RPC + Rollback 版本)*
-
-#### 步骤 3.2: 核心代码填空指南 (node.go)
-
-这是最难的一步，逻辑必须严密。
-
-*   **填空 1: 乐观写入**
-    ```go
-    // 先假设会成功，写到自己小本本上
-    n.Log = append(n.Log, entry)
-    ```
-*   **填空 2: RPC 调用**
-    ```go
-    err := n.peerClient.Call("Node.HandleAppendEntries", args, &reply)
-    ```
-*   **填空 3: 失败回滚 (核心)**
-    ```go
-    if err != nil || !reply.Success {
-        // 既然同步失败，刚才写的那个就要作废
-        n.Log = n.Log[:len(n.Log)-1]
-        return fmt.Errorf("replication failed, rolled back")
-    }
-    ```
-
-#### 步骤 3.3: 运行
+### 3.5 验证
 ```bash
-cd ../lab3
+cd lab3
 go test -v
 ```
-*   **预期结果**: `TestReplicationFailure` 会测试你有没有删掉脏数据。如果通过，恭喜你，你已经理解了强一致性的代价。
 
 ---
 
-## 总结与后续
+## 📝 实验报告要求 (Report Requirements)
 
-完成这三个 Lab 后，你实际上已经构建了一个微型的分布式数据库原型：
-1.  **Lab 1**: 也就是数据库的**线程模型**。
-2.  **Lab 2**: 也就是数据库的**MVCC（多版本并发控制）基础**。
-3.  **Lab 3**: 也就是数据库的**高可用（HA）机制**。
+实验完成后，请提交一份 PDF 格式的实验报告，包含以下内容：
 
-**如何继续深造？**
-如果你觉得这三个实验做完还有余力，下一步推荐去挑战 **MIT 6.824 的 Lab 2 (Raft)**。
+1.  **设计思路**
+    - 简述每个 Lab 的核心数据结构设计（如 Struct 定义）
+    - 针对每个 Lab，结合关键代码片段（如 Lab 1 的循环等待条件、Lab 2 的时钟更新公式、Lab 3 的回滚逻辑），解释你的设计思路
+3.  **测试结果**
+    *   提供三个 Lab 的 `go test` 成功运行截图。
+    *   截图需包含测试用例名称及最终的 `PASS` 标识。
+
+3.  **思考**
+    1. **关于任务池 (Lab 1)**：
+        - 如果将 sync.Cond 替换为 Go 语言的 Buffered Channel（缓冲通道），能否实现同样的功能？如果可以，简述实现思路；如果不可以，说明原因。
+    2. **关于全序关系 (Lab 2)**：
+        - Lamport 时钟保证了“如果 A -> B（A 发生于 B 之前），则 C(A) < C(B)”。**反之是否成立？** 如果我们观察到两个事件的时间戳 C(X) < C(Y)，是否一定能推断出 X 发生于 Y 之前？为什么？。
+    3. **关于一致性缺陷 (Lab 3)**：
+        1. **场景**：Primary 向 Backup 发送 RPC 请求，Backup 成功写入数据并返回 ACK。但在网络传输过程中，ACK 包丢失了。
+        2. **后果**：此时 Primary 会认为请求超时失败，从而执行回滚（删除数据），而 Backup 却保留了数据。
+        3. **问题**：这导致了主从数据不一致。在不引入完整共识算法（如 Raft）的前提下，你能想到什么简单的机制（如重试、幂等性设计）来缓解这个问题吗？
+
+4. **问题与总结**
+
+    *   在实验过程中遇到了哪些并发竞争（Race Condition）或死锁问题？是如何解决的？
+
+    *   通过本次实验，对分布式系统的一致性有了怎样的新的理解？
+
