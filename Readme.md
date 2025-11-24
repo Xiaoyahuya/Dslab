@@ -130,7 +130,9 @@ go test -v -race  # -race 参数用于检测并发竞争
 
 ### 2.2 实验任务
 在 `lab2/node.go` 中实现 Lamport 时钟算法，确保系统满足以下不变性（Invariant）：
-$$ \text{if } a \rightarrow b, \text{ then } C(a) < C(b) $$
+$$ 
+\text{if } a \rightarrow b, \text{ then } C(a) < C(b) 
+$$
 
 ### 2.3 交互流程
 
